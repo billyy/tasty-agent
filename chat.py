@@ -1,5 +1,21 @@
 import asyncio
 import logging
+import os
+
+# IMPORTANT: Configure logging BEFORE any other imports
+log_level = os.getenv('LOG_LEVEL', 'INFO').upper()
+logging.basicConfig(
+    level=getattr(logging, log_level),
+    format='%(message)s'  # Simple format without timestamps/levels
+)
+
+# Suppress noisy loggers
+logging.getLogger('httpx').setLevel(logging.CRITICAL)
+logging.getLogger('httpcore').setLevel(logging.CRITICAL)
+logging.getLogger('openai').setLevel(logging.CRITICAL)
+logging.getLogger('pydantic_ai').setLevel(logging.CRITICAL)
+logging.getLogger('tastytrade').setLevel(logging.CRITICAL)
+logging.getLogger('websockets').setLevel(logging.CRITICAL)
 
 from agent import create_tastytrader_agent
 

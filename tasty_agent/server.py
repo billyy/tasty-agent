@@ -8,6 +8,33 @@ import os
 from typing import Literal, AsyncIterator, Any, Sequence, TypedDict
 from pydantic import BaseModel, Field
 
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    # dotenv is optional - env vars can be set directly
+    pass
+
+# Configure logging BEFORE other imports to suppress noisy libraries
+LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL),
+    format='%(message)s',
+    force=True  # Override any existing logging config
+)
+
+# Aggressively suppress noisy third-party loggers
+logging.getLogger('httpx').setLevel(logging.CRITICAL)
+logging.getLogger('httpcore').setLevel(logging.CRITICAL)
+logging.getLogger('tastytrade').setLevel(logging.CRITICAL)
+logging.getLogger('aiocache').setLevel(logging.CRITICAL)
+logging.getLogger('httpx._client').setLevel(logging.CRITICAL)
+logging.getLogger('tastytrade.session').setLevel(logging.CRITICAL)
+logging.getLogger('tastytrade.streamer').setLevel(logging.CRITICAL)
+logging.getLogger('websockets').setLevel(logging.CRITICAL)
+logging.getLogger('websockets.client').setLevel(logging.CRITICAL)
+
 from aiocache import cached, Cache
 from aiocache.serializers import PickleSerializer
 from aiolimiter import AsyncLimiter
@@ -28,7 +55,7 @@ from tastytrade.watchlists import PublicWatchlist, PrivateWatchlist
 
 logger = logging.getLogger(__name__)
 
-rate_limiter = AsyncLimiter(2, 1) # 2 requests per second
+rate_limiter = AsyncLimiter(5, 1) # 2 requests per second
 
 def to_table(data: Sequence[BaseModel]) -> str:
     """Format list of Pydantic models as a plain table."""
@@ -64,7 +91,7 @@ async def lifespan(_) -> AsyncIterator[ServerContext]:
     try:
         session = Session(client_secret, refresh_token)
         accounts = Account.get(session)
-        logger.info(f"Successfully authenticated with Tastytrade. Found {len(accounts)} account(s).")
+        logger.debug(f"Successfully authenticated with Tastytrade. Found {len(accounts)} account(s).")
     except Exception as e:
         logger.error(f"Failed to authenticate with Tastytrade: {e}")
         raise
@@ -74,10 +101,10 @@ async def lifespan(_) -> AsyncIterator[ServerContext]:
         if not account:
             logger.error(f"Account '{account_id}' not found in available accounts: {[acc.account_number for acc in accounts]}")
             raise ValueError(f"Account '{account_id}' not found.")
-        logger.info(f"Using specified account: {account.account_number}")
+        logger.debug(f"Using specified account: {account.account_number}")
     else:
         account = accounts[0]
-        logger.info(f"Using default account: {account.account_number}")
+        logger.debug(f"Using default account: {account.account_number}")
 
     yield ServerContext(
         session=session,
@@ -85,6 +112,7 @@ async def lifespan(_) -> AsyncIterator[ServerContext]:
     )
 
 mcp_app = FastMCP("TastyTrade", lifespan=lifespan)
+
 
 # =============================================================================
 # ACCOUNT & POSITION TOOLS
@@ -408,7 +436,8 @@ async def get_market_metrics(ctx: Context, symbols: list[str]) -> str:
 
     Note extreme IV rank/percentile (0-1): low = cheap options (buy opportunity), high = expensive options (close positions).
     """
-    metrics = await a_get_market_metrics(get_context(ctx).session, symbols)
+    context = get_context(ctx)
+    metrics = await a_get_market_metrics(context.session, symbols)
     return to_table(metrics)
 
 
@@ -461,8 +490,9 @@ async def market_status(ctx: Context, exchanges: list[Literal['Equity', 'CME', '
 @mcp_app.tool()
 async def search_symbols(ctx: Context, symbol: str) -> str:
     """Search for symbols similar to the given search phrase."""
+    context = get_context(ctx)
     async with rate_limiter:
-        results = await a_symbol_search(get_context(ctx).session, symbol)
+        results = await a_symbol_search(context.session, symbol)
     return to_table(results)
 
 
@@ -797,3 +827,4 @@ Focus on identifying extremes:
 Use the get_positions, get_watchlists, and get_market_metrics tools to gather this data."""),
         base.AssistantMessage("""I'll analyze IV opportunities for your positions and watchlist. Let me start by gathering your current positions and watchlist data, then get market metrics for each symbol to assess IV rank extremes and liquidity.""")
     ]
+

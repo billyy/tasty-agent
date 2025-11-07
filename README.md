@@ -119,6 +119,101 @@ uv run background.py "Execute morning trading strategy" --schedule "9:30am" --ho
 uv run background.py "Buy the dip strategy" --market-open --hourly
 ```
 
+## MCP Server over HTTP/SSE
+
+The TastyTrade MCP server can be exposed over HTTP using Server-Sent Events (SSE) transport, allowing external agents and applications to connect via HTTP instead of stdio.
+
+### Running the Server
+
+```bash
+# Using the command-line tool (after installation)
+tasty-agent-http
+
+# Or using Python module
+python -m tasty_agent.http_server
+
+# Custom host and port
+tasty-agent-http --host 127.0.0.1 --port 8080
+
+# Enable debug logging
+tasty-agent-http --debug
+```
+
+### Environment Variables
+
+Set these environment variables before starting the server:
+```bash
+export TASTYTRADE_CLIENT_SECRET="your_client_secret"
+export TASTYTRADE_REFRESH_TOKEN="your_refresh_token"
+export TASTYTRADE_ACCOUNT_ID="your_account_id"  # Optional
+```
+
+### Connecting to the Server
+
+The MCP server will be available at:
+```
+http://localhost:8000/sse
+```
+
+#### Using MCP Inspector
+
+```bash
+npx @modelcontextprotocol/inspector http://localhost:8000/sse
+```
+
+#### MCP Client Configuration
+
+Configure your MCP client to connect via HTTP/SSE:
+
+```json
+{
+  "mcpServers": {
+    "tastytrade-http": {
+      "url": "http://localhost:8000/sse"
+    }
+  }
+}
+```
+
+#### Python MCP Client Example
+
+```python
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.sse import sse_client
+
+async with sse_client("http://localhost:8000/sse") as (read, write):
+    async with ClientSession(read, write) as session:
+        await session.initialize()
+
+        # List available tools
+        tools = await session.list_tools()
+        print(f"Available tools: {[tool.name for tool in tools.tools]}")
+
+        # Call a tool
+        result = await session.call_tool("get_balances", arguments={})
+        print(f"Balances: {result.content}")
+```
+
+### Use Cases
+
+- **Remote agents**: Connect AI agents from different machines/containers
+- **Web applications**: Integrate MCP tools into web-based trading interfaces
+- **Cloud deployments**: Deploy the MCP server as a cloud service
+- **Multiple clients**: Allow multiple agents to connect to the same server
+
+### Security Considerations
+
+⚠️ **Important**: The HTTP/SSE server exposes trading capabilities. When deploying:
+
+1. **Do not expose to public internet** - Use only on localhost or internal networks
+2. **Use authentication** - Add authentication middleware for production deployments
+3. **Use HTTPS** - Always use TLS/SSL in production environments
+4. **Firewall rules** - Restrict access to trusted IPs only
+5. **Environment variables** - Keep credentials secure, never commit to version control
+6. **Reverse proxy** - Consider using nginx or similar with authentication
+
+For production deployments, consider implementing authentication and using a reverse proxy with TLS.
+
 ## Development
 
 ### Testing with chat.py
@@ -130,7 +225,7 @@ For interactive testing during development:
 # TASTYTRADE_REFRESH_TOKEN=your_token
 # TASTYTRADE_ACCOUNT_ID=your_account_id (defaults to the first account)
 # OPENAI_API_KEY=your_openai_key (you can provide alternative provider of your choice as supported by pydantic-ai)
-# MODEL_IDENTIFIER=model_provider:model_name (defaults to openai:gpt-5-mini)
+# MODEL_IDENTIFIER=model_provider:model_name (defaults to openai:gpt-4o-mini)
 
 
 # Run the interactive client

@@ -1,0 +1,17 @@
+{
+  // Use the project's virtual environment
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+
+  // Python language server settings
+  "python.analysis.extraPaths": [
+    "${workspaceFolder}/.venv/lib/python3.12/site-packages"
+  ],
+  "python.analysis.autoSearchPaths": true,
+  "python.analysis.useLibraryCodeForTypes": true,
+
+  // Enable type checking
+  "python.analysis.typeCheckingMode": "basic",
+
+  // Auto-activate venv
+  "python.terminal.activateEnvironment": true
+}
