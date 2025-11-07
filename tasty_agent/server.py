@@ -32,8 +32,10 @@ logging.getLogger('aiocache').setLevel(logging.CRITICAL)
 logging.getLogger('httpx._client').setLevel(logging.CRITICAL)
 logging.getLogger('tastytrade.session').setLevel(logging.CRITICAL)
 logging.getLogger('tastytrade.streamer').setLevel(logging.CRITICAL)
+logging.getLogger('tastytrade.dxlink_streamer').setLevel(logging.CRITICAL)
 logging.getLogger('websockets').setLevel(logging.CRITICAL)
 logging.getLogger('websockets.client').setLevel(logging.CRITICAL)
+logging.getLogger('websockets.protocol').setLevel(logging.CRITICAL)
 
 from aiocache import cached, Cache
 from aiocache.serializers import PickleSerializer
