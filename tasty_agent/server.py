@@ -24,19 +24,6 @@ logging.basicConfig(
     force=True  # Override any existing logging config
 )
 
-# Aggressively suppress noisy third-party loggers
-logging.getLogger('httpx').setLevel(logging.CRITICAL)
-logging.getLogger('httpcore').setLevel(logging.CRITICAL)
-logging.getLogger('tastytrade').setLevel(logging.CRITICAL)
-logging.getLogger('aiocache').setLevel(logging.CRITICAL)
-logging.getLogger('httpx._client').setLevel(logging.CRITICAL)
-logging.getLogger('tastytrade.session').setLevel(logging.CRITICAL)
-logging.getLogger('tastytrade.streamer').setLevel(logging.CRITICAL)
-logging.getLogger('tastytrade.dxlink_streamer').setLevel(logging.CRITICAL)
-logging.getLogger('websockets').setLevel(logging.CRITICAL)
-logging.getLogger('websockets.client').setLevel(logging.CRITICAL)
-logging.getLogger('websockets.protocol').setLevel(logging.CRITICAL)
-
 from aiocache import cached, Cache
 from aiocache.serializers import PickleSerializer
 from aiolimiter import AsyncLimiter
@@ -54,6 +41,20 @@ from tastytrade.search import a_symbol_search
 from tastytrade.streamer import DXLinkStreamer
 from tastytrade.utils import now_in_new_york
 from tastytrade.watchlists import PublicWatchlist, PrivateWatchlist
+
+# Aggressively suppress noisy third-party loggers
+# NOTE: Must be done AFTER imports because tastytrade sets logger.setLevel(DEBUG) in __init__.py
+logging.getLogger('httpx').setLevel(logging.CRITICAL)
+logging.getLogger('httpcore').setLevel(logging.CRITICAL)
+logging.getLogger('tastytrade').setLevel(logging.CRITICAL)
+logging.getLogger('aiocache').setLevel(logging.CRITICAL)
+logging.getLogger('httpx._client').setLevel(logging.CRITICAL)
+logging.getLogger('tastytrade.session').setLevel(logging.CRITICAL)
+logging.getLogger('tastytrade.streamer').setLevel(logging.CRITICAL)
+logging.getLogger('tastytrade.dxlink_streamer').setLevel(logging.CRITICAL)
+logging.getLogger('websockets').setLevel(logging.CRITICAL)
+logging.getLogger('websockets.client').setLevel(logging.CRITICAL)
+logging.getLogger('websockets.protocol').setLevel(logging.CRITICAL)
 
 logger = logging.getLogger(__name__)
 
