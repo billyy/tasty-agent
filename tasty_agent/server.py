@@ -60,6 +60,16 @@ logger = logging.getLogger(__name__)
 
 rate_limiter = AsyncLimiter(5, 1) # 2 requests per second
 
+async def ensure_session_valid(session: Session) -> None:
+    """Check if session token is expired and refresh if needed."""
+    current_time = now_in_new_york()
+    # Refresh if expired or about to expire in the next minute
+    if current_time >= session.session_expiration - timedelta(minutes=1):
+        await session.a_refresh()
+        logger.info("🔄 Token refreshed")
+    else:
+        logger.debug(f"Session valid until {session.session_expiration}")
+
 def to_table(data: Sequence[BaseModel]) -> str:
     """Format list of Pydantic models as a plain table."""
     if not data:
@@ -72,9 +82,11 @@ class ServerContext:
     account: Account
 
 
-def get_context(ctx: Context) -> ServerContext:
-    """Extract context from request."""
-    return ctx.request_context.lifespan_context
+async def get_context(ctx: Context) -> ServerContext:
+    """Extract context from request and ensure session is valid."""
+    context = ctx.request_context.lifespan_context
+    await ensure_session_valid(context.session)
+    return context
 
 @asynccontextmanager
 async def lifespan(_) -> AsyncIterator[ServerContext]:
@@ -123,13 +135,13 @@ mcp_app = FastMCP("TastyTrade", lifespan=lifespan)
 
 @mcp_app.tool()
 async def get_balances(ctx: Context) -> dict[str, Any]:
-    context = get_context(ctx)
+    context = await get_context(ctx)
     return {k: v for k, v in (await context.account.a_get_balances(context.session)).model_dump().items() if v is not None and v != 0}
 
 
 @mcp_app.tool()
 async def get_positions(ctx: Context) -> str:
-    context = get_context(ctx)
+    context = await get_context(ctx)
     positions = await context.account.a_get_positions(context.session, include_marks=True)
     return to_table(positions)
 
@@ -140,7 +152,7 @@ async def get_net_liquidating_value_history(
     time_back: Literal['1d', '1m', '3m', '6m', '1y', 'all'] = '1y'
 ) -> str:
     """Portfolio value over time. ⚠️ Use with get_transaction_history(transaction_type="Money Movement") to separate trading performance from deposits/withdrawals."""
-    context = get_context(ctx)
+    context = await get_context(ctx)
     history = await context.account.a_get_net_liquidating_value_history(context.session, time_back=time_back)
     return to_table(history)
 
@@ -279,7 +291,7 @@ async def get_quotes(
         logger.error("get_quotes called with empty instruments list")
         raise ValueError("At least one instrument is required")
 
-    context = get_context(ctx)
+    context = await get_context(ctx)
     instrument_details = await get_instrument_details(context.session, instruments)
 
     try:
@@ -334,7 +346,7 @@ async def get_greeks(
         logger.error("get_greeks called with empty options list")
         raise ValueError("At least one option is required")
 
-    context = get_context(ctx)
+    context = await get_context(ctx)
     option_details = await get_instrument_details(context.session, options)
 
     try:
@@ -373,7 +385,7 @@ async def get_transaction_history(
     transaction_type: Literal["Trade", "Money Movement"] | None = None
 ) -> str:
     """Get account transaction history including trades and money movements for the last N days (default: 90)."""
-    context = get_context(ctx)
+    context = await get_context(ctx)
     all_trades = []
     page_offset = 0
     PER_PAGE = 250
@@ -406,7 +418,7 @@ async def get_order_history(
     underlying_symbol: str | None = None
 ) -> str:
     """Get all order history for the last N days (default: 7)."""
-    context = get_context(ctx)
+    context = await get_context(ctx)
     all_orders = []
     page_offset = 0
     ORDER_PAGE_SIZE = 50  # Order history API max is 50 per page
@@ -439,7 +451,7 @@ async def get_market_metrics(ctx: Context, symbols: list[str]) -> str:
 
     Note extreme IV rank/percentile (0-1): low = cheap options (buy opportunity), high = expensive options (close positions).
     """
-    context = get_context(ctx)
+    context = await get_context(ctx)
     metrics = await a_get_market_metrics(context.session, symbols)
     return to_table(metrics)
 
@@ -450,7 +462,7 @@ async def market_status(ctx: Context, exchanges: list[Literal['Equity', 'CME', '
     Get market status for each exchange including current open/closed state,
     next opening times, and holiday information.
     """
-    context = get_context(ctx)
+    context = await get_context(ctx)
     market_sessions = await a_get_market_sessions(context.session, [ExchangeType(exchange) for exchange in exchanges])
 
     if not market_sessions:
@@ -493,7 +505,7 @@ async def market_status(ctx: Context, exchanges: list[Literal['Equity', 'CME', '
 @mcp_app.tool()
 async def search_symbols(ctx: Context, symbol: str) -> str:
     """Search for symbols similar to the given search phrase."""
-    context = get_context(ctx)
+    context = await get_context(ctx)
     async with rate_limiter:
         results = await a_symbol_search(context.session, symbol)
     return to_table(results)
@@ -567,7 +579,7 @@ async def calculate_net_price(ctx: Context, instrument_details: list[InstrumentD
 
 @mcp_app.tool()
 async def get_live_orders(ctx: Context) -> str:
-    context = get_context(ctx)
+    context = await get_context(ctx)
     orders = await context.account.a_get_live_orders(context.session)
     return to_table(orders)
 
@@ -613,7 +625,7 @@ async def place_order(
             logger.error("place_order called with empty legs list")
             raise ValueError("At least one leg is required")
 
-        context = get_context(ctx)
+        context = await get_context(ctx)
         # Convert OrderLeg to InstrumentSpec for instrument lookup
         instrument_specs = [
             InstrumentSpec(
@@ -668,7 +680,7 @@ async def replace_order(
         Reduce price: replace_order("12345", -9.50)
     """
     async with rate_limiter:
-        context = get_context(ctx)
+        context = await get_context(ctx)
 
         # Get the existing order
         live_orders = await context.account.a_get_live_orders(context.session)
@@ -695,7 +707,7 @@ async def replace_order(
 @mcp_app.tool()
 async def delete_order(ctx: Context, order_id: str) -> dict[str, Any]:
     """Cancel an existing order."""
-    context = get_context(ctx)
+    context = await get_context(ctx)
     await context.account.a_delete_order(context.session, int(order_id))
     return {"success": True, "order_id": order_id}
 
@@ -715,7 +727,7 @@ async def get_watchlists(
 
     No name = list watchlist names. With name = get symbols in that watchlist. For private, default to "main".
     """
-    context = get_context(ctx)
+    context = await get_context(ctx)
     watchlist_class = PublicWatchlist if watchlist_type == 'public' else PrivateWatchlist
 
     return (await watchlist_class.a_get(context.session, name)).model_dump() if name else [w.model_dump() for w in await watchlist_class.a_get(context.session)]
@@ -748,7 +760,7 @@ async def manage_private_watchlist(
             {"symbol": "SPY", "instrument_type": "Equity Option"}
         ])
     """
-    context = get_context(ctx)
+    context = await get_context(ctx)
 
     if not symbols:
         logger.error("manage_private_watchlist called with empty symbols list")
@@ -797,7 +809,7 @@ async def manage_private_watchlist(
 
 @mcp_app.tool()
 async def delete_private_watchlist(ctx: Context, name: str) -> None:
-    context = get_context(ctx)
+    context = await get_context(ctx)
     await PrivateWatchlist.a_remove(context.session, name)
     await ctx.info(f"✅ Deleted private watchlist '{name}'")
 
