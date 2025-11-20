@@ -7,3 +7,4 @@ data
 dist
 *.ipynb
 tasty_agent/_version.py
+claude_desktop_config.json

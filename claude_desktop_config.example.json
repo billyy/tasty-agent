@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "tastytrade": {
+      "command": "uv",
+      "args": [
+        "--directory",
+        "/path/to/tasty-agent-1",
+        "run",
+        "tasty-agent"
+      ],
+      "env": {
+        "TASTYTRADE_CLIENT_SECRET": "your_client_secret_here",
+        "TASTYTRADE_REFRESH_TOKEN": "your_refresh_token_here",
+        "TASTYTRADE_ACCOUNT_ID": "your_account_id_here"
+      }
+    }
+  },
+  "capabilities": {
+    "sampling": {}
+  }
+}
