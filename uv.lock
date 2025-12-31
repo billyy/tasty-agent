@@ -1935,7 +1935,7 @@ requires-dist = [
     { name = "mcp", extras = ["cli"], specifier = ">=1.14.0" },
     { name = "python-dotenv", specifier = ">=1.1.0" },
     { name = "tabulate", specifier = ">=0.9.0" },
-    { name = "tastytrade", specifier = ">=11.0.0" },
+    { name = "tastytrade", specifier = ">=11.1.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -1948,7 +1948,7 @@ dev = [
 
 [[package]]
 name = "tastytrade"
-version = "11.0.2"
+version = "11.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
@@ -1956,9 +1956,9 @@ dependencies = [
     { name = "pydantic" },
     { name = "websockets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/70/58/c39db59ebfac052dd8681907f7cc27c625a40e2dbfe80d088df7e5296ef8/tastytrade-11.0.2.tar.gz", hash = "sha256:8eadb04997257aed6bfd406d9f183ea21dc2f53b917fccf033a4e84bf70153d8", size = 200127, upload-time = "2025-11-02T19:25:51.35Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/af/b2/3b6a9b54426b5262ade8d6165ffd85c13fdf6625693b28113f2bd30e754b/tastytrade-11.1.0.tar.gz", hash = "sha256:97ef96740dab3ecc35a8a7e94ee7cd9091174b692a24d29592bbca71701889e4", size = 199068, upload-time = "2025-12-18T20:55:31.95Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/16/ff/8e8186f62661d9773f699ba756835c5e977bc0ee2a525a9f0bd11d40f0fd/tastytrade-11.0.2-py3-none-any.whl", hash = "sha256:0839bc3f498ade1be02510a0845f4e19aa8e5a892b87991d5b44e2df2ffcfc31", size = 54520, upload-time = "2025-11-02T19:25:49.795Z" },
+    { url = "https://files.pythonhosted.org/packages/b1/16/f12781e9ed7a18d1a959be6be7a8de234a5ef2196a17d3d2fa985c8113cc/tastytrade-11.1.0-py3-none-any.whl", hash = "sha256:bea5c0fbdf55d5eed86754de65e60dffb3ead3e1e01761ac76f4a633f971eecd", size = 51376, upload-time = "2025-12-18T20:55:30.395Z" },
 ]
 
 [[package]]

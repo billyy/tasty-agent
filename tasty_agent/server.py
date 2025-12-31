@@ -59,16 +59,106 @@ logging.getLogger('websockets.protocol').setLevel(logging.CRITICAL)
 logger = logging.getLogger(__name__)
 
 rate_limiter = AsyncLimiter(5, 1) # 2 requests per second
+_refresh_lock = asyncio.Lock()  # Prevent concurrent refresh attempts
+_last_refresh_attempt: datetime | None = None  # Track last refresh to prevent rapid retries
+_last_successful_refresh: datetime | None = None  # Track when we last successfully refreshed
+SESSION_TOKEN_LIFETIME_SECONDS = 14 * 60  # 14 minutes (conservative, actual is 15)
 
-async def ensure_session_valid(session: Session) -> None:
-    """Check if session token is expired and refresh if needed."""
-    current_time = now_in_new_york()
-    # Refresh if expired or about to expire in the next minute
-    if current_time >= session.session_expiration - timedelta(minutes=1):
-        await session.a_refresh()
-        logger.info("🔄 Token refreshed")
-    else:
-        logger.debug(f"Session valid until {session.session_expiration}")
+async def ensure_session_valid(session: Session, max_retries: int = 3) -> None:
+    """Check if session token is expired and refresh if needed with retry logic."""
+    global _last_refresh_attempt, _last_successful_refresh
+
+    try:
+        current_time = now_in_new_york()
+
+        # WORKAROUND for tastytrade library bug where session_expiration gets set to years in future
+        # Instead of trusting session.session_expiration, track refresh time ourselves
+        needs_refresh = False
+
+        if _last_successful_refresh is None:
+            # First time - check library's expiration, but with validation
+            session_exp = session.session_expiration
+            if session_exp.tzinfo is None:
+                session_exp = session_exp.replace(tzinfo=timezone.utc)
+            time_until_expiration = session_exp - current_time
+
+            # If expiration is suspiciously far (>1 hour), assume it's already expired
+            if time_until_expiration.total_seconds() > 3600:
+                logger.warning(f"⚠️  Session expiration suspiciously far: {time_until_expiration.total_seconds():.0f}s. Forcing refresh.")
+                needs_refresh = True
+            elif time_until_expiration.total_seconds() < 120:
+                needs_refresh = True
+        else:
+            # Use our own tracking: refresh if 14 minutes have passed since last successful refresh
+            time_since_refresh = (current_time - _last_successful_refresh).total_seconds()
+            if time_since_refresh >= SESSION_TOKEN_LIFETIME_SECONDS:
+                logger.info(f"🕐 {time_since_refresh:.0f}s since last refresh (>14min), refreshing token")
+                needs_refresh = True
+
+        if needs_refresh:
+            # Use lock to prevent concurrent refresh attempts
+            async with _refresh_lock:
+                # Double-check after acquiring lock (another thread may have refreshed)
+                current_time = now_in_new_york()
+
+                # If already refreshed recently by another thread, skip
+                if _last_successful_refresh:
+                    time_since_refresh = (current_time - _last_successful_refresh).total_seconds()
+                    if time_since_refresh < 120:  # Refreshed within last 2 minutes
+                        logger.debug(f"Session already refreshed by another thread {time_since_refresh:.0f}s ago")
+                        return
+
+                # Prevent rapid refresh retries (wait at least 5 seconds between attempts)
+                if _last_refresh_attempt:
+                    time_since_last_attempt = (current_time - _last_refresh_attempt).total_seconds()
+                    if time_since_last_attempt < 5:
+                        logger.warning(f"⚠️  Skipping refresh - last attempt was {time_since_last_attempt:.1f}s ago")
+                        return
+
+                logger.info(f"🔄 Refreshing token")
+
+                # Retry logic with exponential backoff
+                last_error = None
+                for attempt in range(max_retries):
+                    try:
+                        _last_refresh_attempt = now_in_new_york()
+                        await session.a_refresh()
+                        _last_successful_refresh = now_in_new_york()
+
+                        # Log library's expiration but don't rely on it (due to bug)
+                        exp_time = session.session_expiration
+                        if exp_time.tzinfo is None:
+                            exp_time = exp_time.replace(tzinfo=timezone.utc)
+                        time_until_exp = (exp_time - _last_successful_refresh).total_seconds()
+
+                        if time_until_exp > 3600:
+                            logger.warning(f"⚠️  Library reports expiration in {time_until_exp:.0f}s (bug - ignoring, using 14min timer)")
+                        else:
+                            logger.info(f"✅ Token refreshed, library expiration: {session.session_expiration}")
+
+                        return
+                    except Exception as refresh_error:
+                        last_error = refresh_error
+                        if attempt < max_retries - 1:
+                            wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                            logger.warning(f"⚠️  Refresh attempt {attempt + 1} failed: {refresh_error}. Retrying in {wait_time}s...")
+                            await asyncio.sleep(wait_time)
+                        else:
+                            logger.error(f"❌ All {max_retries} refresh attempts failed: {refresh_error}", exc_info=True)
+
+                # If all retries failed, raise the last error
+                raise RuntimeError(f"Failed to refresh session after {max_retries} attempts: {last_error}")
+        else:
+            # Log status based on our own tracking
+            if _last_successful_refresh:
+                time_since_refresh = (current_time - _last_successful_refresh).total_seconds()
+                time_remaining = SESSION_TOKEN_LIFETIME_SECONDS - time_since_refresh
+                logger.debug(f"Session valid for ~{time_remaining:.0f} more seconds (refreshed {time_since_refresh:.0f}s ago)")
+            else:
+                logger.debug(f"Session appears valid (first check after initialization)")
+    except Exception as e:
+        logger.error(f"❌ Failed to ensure session validity: {e}", exc_info=True)
+        raise
 
 def to_table(data: Sequence[BaseModel]) -> str:
     """Format list of Pydantic models as a plain table."""
@@ -91,6 +181,7 @@ async def get_context(ctx: Context) -> ServerContext:
 @asynccontextmanager
 async def lifespan(_) -> AsyncIterator[ServerContext]:
     """Manages Tastytrade session lifecycle."""
+    global _last_successful_refresh
 
     client_secret = os.getenv("TASTYTRADE_CLIENT_SECRET")
     refresh_token = os.getenv("TASTYTRADE_REFRESH_TOKEN")
@@ -106,7 +197,26 @@ async def lifespan(_) -> AsyncIterator[ServerContext]:
     try:
         session = Session(client_secret, refresh_token)
         accounts = Account.get(session)
-        logger.debug(f"Successfully authenticated with Tastytrade. Found {len(accounts)} account(s).")
+        # Initialize our tracking - assume session was just created/refreshed
+        _last_successful_refresh = now_in_new_york()
+        logger.info(f"✅ Successfully authenticated with Tastytrade. Found {len(accounts)} account(s).")
+        logger.info(f"📅 Session expires at: {session.session_expiration} (tzinfo: {session.session_expiration.tzinfo})")
+
+        # Check if we need to refresh immediately
+        try:
+            current_time = now_in_new_york()
+            session_exp = session.session_expiration
+            if session_exp.tzinfo is None:
+                session_exp = session_exp.replace(tzinfo=timezone.utc)
+            time_until_exp = session_exp - current_time
+            logger.info(f"⏱️  Time until expiration: {time_until_exp.total_seconds():.0f} seconds")
+
+            # Proactively refresh if initial session is close to expiring
+            if time_until_exp.total_seconds() < 120:
+                logger.info("🔄 Initial session close to expiring, refreshing proactively...")
+                await ensure_session_valid(session)
+        except Exception as time_err:
+            logger.warning(f"⚠️  Could not calculate/refresh session expiration: {time_err}")
     except Exception as e:
         logger.error(f"Failed to authenticate with Tastytrade: {e}")
         raise
